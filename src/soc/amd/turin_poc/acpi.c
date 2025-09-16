@@ -3,6 +3,7 @@
 /* ACPI - create the Fixed ACPI Description Tables (FADT) */
 
 #include <acpi/acpi.h>
+#include <acpi/acpi_ivrs.h>
 #include <amdblocks/acpi.h>
 #include <amdblocks/acpimmio.h>
 #include <amdblocks/chip.h>
@@ -11,6 +12,40 @@
 #include <device/device.h>
 #include <drivers/amd/opensil/opensil.h>
 #include <xPRF-api.h>
+
+static const unsigned int iommu0_domains[] = { 0, 3 };
+static const unsigned int iommu2_domains[] = { 2, 1 };
+static const unsigned int iommu5_domains[] = { 5, 6 };
+static const unsigned int iommu7_domains[] = { 7, 4 };
+
+static const struct ivrs_iommu_domain ivrs_iommu_domains[] = {
+	{
+		.iommu_domain = 0,
+		.num_covered_domains = ARRAY_SIZE(iommu0_domains),
+		.covered_domain_ids = iommu0_domains
+	},
+	{
+		.iommu_domain = 2,
+		.num_covered_domains = ARRAY_SIZE(iommu2_domains),
+		.covered_domain_ids = iommu2_domains
+	},
+	{
+		.iommu_domain = 5,
+		.num_covered_domains = ARRAY_SIZE(iommu5_domains),
+		.covered_domain_ids = iommu5_domains
+	},
+	{
+		.iommu_domain = 7,
+		.num_covered_domains = ARRAY_SIZE(iommu7_domains),
+		.covered_domain_ids = iommu7_domains
+	}
+};
+
+unsigned int acpi_ivrs_get_iommu_domains(const struct ivrs_iommu_domain **iommu_domains)
+{
+	*iommu_domains = ivrs_iommu_domains;
+	return ARRAY_SIZE(ivrs_iommu_domains);
+}
 
 void acpi_fill_fadt(acpi_fadt_t *fadt)
 {
