@@ -6,11 +6,13 @@
 #include <amdblocks/psp.h>
 #include <amdblocks/smi.h>
 #include <amdblocks/smm.h>
+#include <amdblocks/spi.h>
 #include <arch/hlt.h>
 #include <arch/io.h>
 #include <console/console.h>
 #include <cpu/x86/cache.h>
 #include <cpu/x86/smm.h>
+#include <soc/amd/common/block/psp/psp_def.h>
 #include <soc/smi.h>
 #include <soc/smu.h>
 #include <soc/southbridge.h>
@@ -95,4 +97,11 @@ void *get_smi_source_handler(int source)
 			return smi_sources[i].handler;
 
 	return NULL;
+}
+
+void soc_apmc_finalize(void)
+{
+	pm_write32(PM_ISACONTROL, pm_read32(PM_ISACONTROL) | PM_LOCK_IOMUX);
+	psp_send_generic_command(MBOX_BIOS_CMD_LOCK_FCH_REG, "Locking FCH registers");
+	psp_send_generic_command(MBOX_BIOS_CMD_LOCK_FCH_GPIO, "Locking FCH GPIO");
 }
