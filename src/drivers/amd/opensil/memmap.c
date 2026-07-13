@@ -2,11 +2,15 @@
 
 #include <bootstate.h>
 #include <cbmem.h>
+#include <console/console.h>
+#include <commonlib/helpers.h>
 #include <cpu/amd/mtrr.h>
-#include <string.h>
 #include <vendorcode/amd/opensil/opensil.h>
 
 #include "opensil.h"
+
+/* Turin and Turin Dense support up to 51 holes */
+#define MAX_HOLES 51
 
 /*
  * This structure definition must align exactly with the MEMORY_HOLE_TYPES structure
@@ -19,50 +23,81 @@ typedef struct {
 	uint32_t reserved;
 } HOLE_INFO;
 
+/* These must match openSIL to properly detect all MMIO-style regions */
+#define UMA 0
+#define MMIO 1
+
 /* This assumes holes are allocated */
 void amd_opensil_add_memmap(struct device *dev, unsigned long *idx)
 {
-	uint64_t top_of_mem = 0;
-	uint32_t n_holes = 0;
-	void *hole_info = NULL;
-
 	/* Account for UMA and TSEG */
 	const uint32_t mem_usable = cbmem_top();
 	const uint32_t top_mem = ALIGN_DOWN(get_top_of_mem_below_4gb(), 1 * MiB);
-	if (mem_usable != top_mem)
+
+	if (mem_usable < top_mem)
 		reserved_ram_from_to(dev, (*idx)++, mem_usable, top_mem);
 
 	/* Holes in upper DRAM */
-	/* This assumes all the holes in upper DRAM are continuous */
+	uint32_t n_holes;
+	uint64_t top_of_mem;
+	void *hole_info;
 	opensil_get_hole_info(&n_holes, &top_of_mem, &hole_info);
-	if (hole_info == NULL)
-		return;
 
-	/* Check if we're done */
-	if (top_of_mem <= 4ULL * GiB)
+	if (!hole_info || top_of_mem <= 4ULL * GiB)
 		return;
 
 	HOLE_INFO *holes = (HOLE_INFO *)hole_info;
 
-	uint64_t lowest_upper_hole_base = top_of_mem;
-	uint64_t highest_upper_hole_end = 4ULL * GiB;
-	for (size_t hole = 0; hole < n_holes; hole++) {
-		if (!strcmp(opensil_get_hole_info_type(holes[hole].type), "MMIO"))
-			continue;
+	/* Index list of the upper (>= 4GiB) holes, insertion-sorted by base. */
+	uint8_t order[MAX_HOLES];
+	size_t n_upper = 0;
+
+	for (uint32_t hole = 0; hole < n_holes; hole++) {
 		if (holes[hole].base < 4ULL * GiB)
 			continue;
-		lowest_upper_hole_base = MIN(lowest_upper_hole_base, holes[hole].base);
-		highest_upper_hole_end = MAX(highest_upper_hole_end, holes[hole].base + holes[hole].size);
-		if (!strcmp(opensil_get_hole_info_type(holes[hole].type), "UMA"))
-			mmio_range(dev, (*idx)++, holes[hole].base, holes[hole].size);
-		else
-			reserved_ram_range(dev, (*idx)++, holes[hole].base, holes[hole].size);
+
+		if (n_upper == MAX_HOLES) {
+			printk(BIOS_ERR, "%s: >%d upper DRAM holes, some memory lost\n", 
+			       __func__, MAX_HOLES);
+			break;
+		}
+
+		size_t pos = n_upper++;
+		while (pos > 0 && holes[order[pos - 1]].base > holes[hole].base) {
+			order[pos] = order[pos - 1];
+			pos--;
+		}
+		order[pos] = hole;
 	}
 
-	ram_from_to(dev, (*idx)++, 4ULL * GiB, lowest_upper_hole_base);
+	uint64_t cursor = 4ULL * GiB;
+	for (size_t i = 0; i < n_upper; i++) {
+		HOLE_INFO *h = &holes[order[i]];
+		uint64_t hend = h->base + h->size;
 
-	if (top_of_mem > highest_upper_hole_end)
-		ram_from_to(dev, (*idx)++, highest_upper_hole_end, top_of_mem);
+		/* Skip a hole that is entirely behind the cursor (overlap). */
+		if (hend <= cursor)
+			continue;
+
+		uint64_t map_base = MAX(cursor, h->base);
+		uint64_t map_size = hend - map_base;
+
+		/* Usable DRAM in the gap before this hole. */
+		if (map_base > cursor)
+			ram_from_to(dev, (*idx)++, cursor, map_base);
+
+		/* Carve out the hole. */
+		if (h->type == UMA || h->type == MMIO)
+			mmio_range(dev, (*idx)++, map_base, map_size);
+		else
+			reserved_ram_range(dev, (*idx)++, map_base, map_size);
+
+		cursor = hend; 
+	}
+
+	/* Remaining usable DRAM above the last hole, up to top of memory. */
+	if (top_of_mem > cursor)
+		ram_from_to(dev, (*idx)++, cursor, top_of_mem);
 }
 
 static void print_memory_holes(void *unused)
