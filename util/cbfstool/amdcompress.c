@@ -94,7 +94,7 @@ static int parse_elf_to_xip_ram(const struct buffer *input,
 			printf("\tProgram header #0 is invalid.\n");
 		}
 		/* Expect not to find more PT_LOAD program headers */
-		if (i > 0 && phdr->p_type == PT_LOAD && phdr->p_memsz) {
+		if (i > 0 && phdr->p_type == PT_LOAD && phdr->p_filesz) {
 			printf("\tMultiple program headers found, but only one is supported!\n");
 			return 1;
 		}
