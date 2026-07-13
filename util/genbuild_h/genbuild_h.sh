@@ -51,6 +51,12 @@ else
 	fi
 fi
 
+# Monogon: let the build system pin the reported build time reproducibly.
+if [ -n "${SOURCE_DATE_EPOCH}" ]; then
+	DATE="${SOURCE_DATE_EPOCH}"
+	TIMESOURCE="SOURCE_DATE_EPOCH"
+fi
+
 our_date() {
 case $(uname) in
 NetBSD|OpenBSD|DragonFly|FreeBSD|Darwin)
