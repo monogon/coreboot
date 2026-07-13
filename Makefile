@@ -74,7 +74,7 @@ endif
 # Disable implicit/built-in rules to make Makefile errors fail fast.
 .SUFFIXES:
 
-HOSTCFLAGS := -g
+HOSTCFLAGS := -g -Wno-error -Wno-error=implicit-function-declaration -Wno-error=implicit-int
 HOSTCXXFLAGS := -g
 
 HOSTPKG_CONFIG ?= pkg-config

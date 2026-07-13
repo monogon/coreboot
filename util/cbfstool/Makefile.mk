@@ -191,6 +191,7 @@ $(VBOOT_HOSTLIB):
 	unset CFLAGS LDFLAGS; $(MAKE) -C $(VBOOT_SOURCE) \
 		BUILD=$(VBOOT_HOST_BUILD) \
 		CC="$(HOSTCC)" \
+		WERROR= \
 		PKG_CONFIG="true" \
 		USE_FLASHROM=0 \
 		V=$(V) \
