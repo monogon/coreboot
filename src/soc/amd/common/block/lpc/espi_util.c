@@ -613,6 +613,14 @@ static enum cb_err espi_send_reset(void)
 
 static enum cb_err espi_send_pltrst(const struct espi_config *mb_cfg, bool assert)
 {
+	/*
+	 * Asserting PLTRST# resets the slave's host-facing block, so it re-drives
+	 * its virtual-wire groups once the host deasserts the signal. The
+	 * RXVW_GRP<n>_INT bits in ESPI_SLAVE0_INT_STS then reflect those VW
+	 * packets being received, alongside DNCMD_COMPLETE for this command. They
+	 * are expected status, not errors: espi_pulse_pltrst() relies on this
+	 * re-drive to clear stuck VW IRQs.
+	 */
 	struct espi_cmd cmd = {
 		.hdr0 = {
 			.cmd_type = CMD_TYPE_VW,
@@ -624,6 +632,10 @@ static enum cb_err espi_send_pltrst(const struct espi_config *mb_cfg, bool asser
 			.byte1 = assert ? ESPI_VW_SIGNAL_LOW(ESPI_VW_PLTRST)
 					: ESPI_VW_SIGNAL_HIGH(ESPI_VW_PLTRST),
 		},
+		.expected_status_codes = ESPI_STATUS_RXVW_GRP0 |
+					ESPI_STATUS_RXVW_GRP1 |
+					ESPI_STATUS_RXVW_GRP2 |
+					ESPI_STATUS_RXVW_GRP3,
 	};
 
 	if (!mb_cfg->vw_ch_en)
@@ -1128,4 +1140,28 @@ void configure_espi_with_mb_hook(void)
 {
 	mb_set_up_early_espi();
 	espi_setup();
+}
+
+/*
+ * Pulse PLTRST# over the eSPI Virtual Wire channel (assert -> deassert) without
+ * the in-band link reset that espi_setup() performs. This makes the eSPI slave
+ * re-drive its virtual-wire IRQs to a clean (deasserted) state; the peripheral
+ * channel (and thus a BMC-forwarded console) is left untouched. Useful when the
+ * SoC relies on the PSP's eSPI bring-up but the VW IRQ lines are left asserted.
+ */
+enum cb_err espi_pulse_pltrst(void)
+{
+	const struct espi_config *cfg = espi_get_config();
+	enum cb_err assert_res, deassert_res;
+
+	/*
+	 * Send both edges unconditionally: asserting PLTRST# resets the slave's
+	 * host-facing block, so its command-status handshake may time out
+	 * (CB_ERR) even though the VW was transmitted and acted upon. We still
+	 * must drive PLTRST# back high afterwards.
+	 */
+	assert_res = espi_send_pltrst(cfg, true);
+	deassert_res = espi_send_pltrst(cfg, false);
+
+	return (assert_res == CB_SUCCESS && deassert_res == CB_SUCCESS) ? CB_SUCCESS : CB_ERR;
 }

@@ -21,6 +21,17 @@ unsigned long acpi_fill_madt(unsigned long current)
 						   res->base);
 	}
 
+	if (CONFIG(SOC_AMD_COMMON_BLOCK_USE_ESPI)) {
+		acpi_madt_irqoverride_t *irqovr = (void *)current;
+		irqovr->type = IRQ_SOURCE_OVERRIDE;
+		irqovr->length = sizeof(acpi_madt_irqoverride_t);
+		irqovr->bus = 0; /* ISA */
+		irqovr->source = 4;
+		irqovr->gsirq = 4;
+		irqovr->flags = MP_IRQ_POLARITY_LOW | MP_IRQ_TRIGGER_LEVEL;
+		current += sizeof(acpi_madt_irqoverride_t);
+	}
+
 	current = mainboard_write_madt_irq_overrides(current);
 
 	return current;

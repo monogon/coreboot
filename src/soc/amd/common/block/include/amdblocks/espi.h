@@ -153,4 +153,11 @@ void mb_set_up_early_espi(void);
 /* Setup eSPI with any mainboard specific initialization. */
 void configure_espi_with_mb_hook(void);
 
+/*
+ * Pulse PLTRST# over the eSPI Virtual Wire channel without an in-band link
+ * reset, prompting the slave to re-drive its VW IRQs to a clean state. Leaves
+ * the peripheral channel untouched.
+ */
+enum cb_err espi_pulse_pltrst(void);
+
 #endif /* AMD_BLOCK_ESPI_H */

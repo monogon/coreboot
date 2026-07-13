@@ -59,6 +59,10 @@
 #define ESPI_SLAVE0_INT_EN			0x6c
 #define ESPI_SLAVE0_INT_STS			0x70
 #define  ESPI_STATUS_DNCMD_COMPLETE		(1 << 28)
+#define  ESPI_STATUS_RXVW_GRP0			(1 << 24)
+#define  ESPI_STATUS_RXVW_GRP1			(1 << 25)
+#define  ESPI_STATUS_RXVW_GRP2			(1 << 26)
+#define  ESPI_STATUS_RXVW_GRP3			(1 << 27)
 #define  ESPI_STATUS_NON_FATAL_ERROR		(1 << 6)
 #define  ESPI_STATUS_FATAL_ERROR		(1 << 5)
 #define  ESPI_STATUS_NO_RESPONSE		(1 << 4)
