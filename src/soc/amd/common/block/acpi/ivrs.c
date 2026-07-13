@@ -327,6 +327,25 @@ static unsigned long acpi_fill_ivrs11(unsigned long current, acpi_ivrs_ivhd_t *i
 	return acpi_fill_ivrs40(current, ivhd, nb_dev, iommu_dev);
 }
 
+/* Whether another domain's IOMMU covers this domain's devices in its IVHD entries */
+static bool domain_covered_by_other_iommu(unsigned int domain_id)
+{
+	const struct ivrs_iommu_domain *iommu_domains;
+	unsigned int num_iommu_domains, i, j;
+
+	num_iommu_domains = acpi_ivrs_get_iommu_domains(&iommu_domains);
+	for (i = 0; i < num_iommu_domains; i++) {
+		if (iommu_domains[i].iommu_domain == domain_id)
+			continue;
+		for (j = 0; j < iommu_domains[i].num_covered_domains; j++) {
+			if (iommu_domains[i].covered_domain_ids[j] == domain_id)
+				return true;
+		}
+	}
+
+	return false;
+}
+
 static unsigned long acpi_fill_ivrs(acpi_ivrs_t *ivrs, unsigned long current)
 {
 	unsigned long current_backup;
@@ -362,7 +381,14 @@ static unsigned long acpi_fill_ivrs(acpi_ivrs_t *ivrs, unsigned long current)
 		}
 
 		if (!iommu_dev) {
-			printk(BIOS_WARNING, "%s: IOMMU device not found on domain %u\n", __func__, dev_get_domain_id(dev));
+			/* IOHC pairs share one IOMMU; the IOMMU-less half is described
+			   by extra device ranges in its partner's IVHD entries. */
+			if (domain_covered_by_other_iommu(domain))
+				printk(BIOS_DEBUG, "%s: domain %u covered by another domain's IOMMU\n",
+				       __func__, domain);
+			else
+				printk(BIOS_WARNING, "%s: IOMMU device not found on domain %u\n",
+				       __func__, domain);
 			if (domain == 0)
 				return (unsigned long)ivrs;
 
