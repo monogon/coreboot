@@ -41,6 +41,9 @@ struct soc_usb_config {
 		uint8_t port0 : 4;
 		uint8_t port1 : 4;
 	}  usb3_oc_pins[2];
+	/* Per-port and PHY disable masks, low nibble xHCI0, high nibble xHCI1 */
+	uint32_t xhci_usb2_port_disable;
+	uint32_t xhci_usb3_port_disable;
 	bool polarity_cfg_low;
 	union {
 		struct {

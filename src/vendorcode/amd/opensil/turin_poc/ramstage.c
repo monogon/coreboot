@@ -181,6 +181,8 @@ static void configure_usb(void)
 	}
 	fch_usb_data->XhciOcPolarityCfgLow = usb->polarity_cfg_low;
 	fch_usb_data->Usb3PortForceGen1 = usb->usb3_force_gen1.raw;
+	fch_usb_data->XhciUsb2PortDisable = usb->xhci_usb2_port_disable;
+	fch_usb_data->XhciUsb3PortDisable = usb->xhci_usb3_port_disable;
 
 	memset(&usb_config, 0, sizeof(usb_config));
 
