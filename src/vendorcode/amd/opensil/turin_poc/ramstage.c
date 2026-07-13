@@ -143,8 +143,10 @@ static void setup_rc_manager_default(void)
 	 * of address space (since 4-level paging can cover only 48 bits of
 	 * physical address space), limit the MMIO to maximum of 48 bits.
 	 * MmioAbove4GLimit will be adjusted down in openSIL if needed.
+	 * MNGN: Reduce to 46, 48 does not work, possibly because of the 12G
+	 * region below 2^48 which is blocked out.
 	 */
-	rc_mgr_input_block->MmioAbove4GLimit = POWER_OF_2(MIN(48, cpu_phys_address_size()));
+	rc_mgr_input_block->MmioAbove4GLimit = POWER_OF_2(MIN(46, cpu_phys_address_size()));
 	rc_mgr_input_block->Above4GMmioSizePerRbForNonPciDevice = 0;
 
 	rc_mgr_input_block->AmdSmee = CONFIG(AMD_SME_ENABLE);
