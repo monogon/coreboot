@@ -60,6 +60,10 @@ endif
 # Use additional Soft Fuse bits specified in Kconfig
 PSP_SOFTFUSE_BITS += $(call strip_quotes, $(CONFIG_PSP_SOFTFUSE_BITS))
 
+ifeq ($(CONFIG_PSP_INIT_ESPI),y)
+PSP_SOFTFUSE_BITS += 15
+endif
+
 # type = 0x38
 PSP_SEV_NVRAM_BASE=$(call get_fmap_value,FMAP_SECTION_PSP_SEV_NVRAM_START)
 PSP_SEV_NVRAM_SIZE=$(call get_fmap_value,FMAP_SECTION_PSP_SEV_NVRAM_SIZE)
