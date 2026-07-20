@@ -12,6 +12,7 @@
 #define __ACPI_ACPI_IVRS_H__
 
 #include <stdint.h>
+#include <device/device.h>
 
 /* I/O Virtualization Reporting Structure (IVRS) */
 #define IVHD_BLOCK_TYPE_LEGACY__FIXED		0x10
@@ -230,5 +231,38 @@ typedef struct ivrs_ivhd_f0_entry {
 	uint8_t uuid_format;
 	uint8_t uuid_length;
 } __packed ivrs_ivhd_f0_entry_t;
+
+struct ivrs_iommu_domain {
+	const unsigned int iommu_domain;
+	const unsigned int num_covered_domains;
+	const unsigned int *covered_domain_ids;
+};
+
+/*
+ * SoC-specific map of domains covered by an IOMMU in given domain. Bigger
+ * SoCs, such as server CPUs, have multiple PCI domains and one IOMMU may
+ * cover more than one domain. IVRS must descrbe additional PCI ranges and
+ * IOAPICs for such IOMMUs.
+ *
+ * Returns the number of entries in the iommu_domains array. Returns 0 if the
+ * IOMMU covers only one PCI domain and there is no need to describe
+ * additional PCI devie ranges or IOAPICs in the IVRS.
+ */
+unsigned int acpi_ivrs_get_iommu_domains(const struct ivrs_iommu_domain **iommu_domains);
+
+/*
+ * SoCs should implement this function to describe SoC-specific DMA-capable ACPI devices,
+ * which are not discoverable like PCI, in the IVRS type 40h table.
+ */
+unsigned long soc_acpi_fill_ivrs40(unsigned long current, acpi_ivrs_ivhd40_t *ivhd,
+				   struct device *nb_dev, struct device *iommu_dev);
+
+/*
+ * SoCs should use this function to describe DMA-capable ACPI devices, which
+ * are not discoverable like PCI, in the IVRS type 40h table.
+ */
+unsigned long ivhd_describe_f0_device(unsigned long current, uint16_t dev_id,
+				      const char acpi_hid[8], uint8_t datasetting,
+				      uint64_t uid);
 
 #endif /* __ACPI_ACPI_IVRS_H__ */

@@ -39,6 +39,7 @@
 #define MBOX_BIOS_CMD_SET_RPMC_ADDRESS		0x39
 #define MBOX_BIOS_CMD_LOCK_FCH_GPIO		0x3A
 #define MBOX_BIOS_CMD_SEND_IVRS_ACPI_TABLE	0x3F
+#define MBOX_BIOS_CMD_SET_CONFIG		0x5d
 #define MBOX_BIOS_CMD_QUERY_SPL_FUSE		0x47
 #define MBOX_BIOS_CMD_ARMOR_ENTER_SMM_MODE	0x50
 #define MBOX_BIOS_CMD_ARMOR_SPI_TRANSACTION	0x51
@@ -62,6 +63,31 @@ struct mbox_buffer_header {
 	uint32_t size;		/* total size of buffer */
 	uint32_t status;	/* command status, filled by PSP if applicable */
 } __packed;
+
+struct generic_config {
+	uint32_t config_id;
+	uint32_t arg0;
+	uint32_t arg1;
+	uint32_t arg2;
+	uint32_t arg3;
+} __packed;
+
+/* MBOX_BIOS_CMD_SET_CONFIG */
+struct mbox_cmd_set_config_buffer {
+	struct mbox_buffer_header header;
+	struct generic_config config;
+} __packed __aligned(32);
+
+struct ivrs_acpi_table_info {
+	uint64_t ivrs_table_buffer;
+	uint32_t ivrs_table_size;
+} __packed;
+
+/* MBOX_BIOS_CMD_SEND_IVRS_ACPI_TABLE */
+struct mbox_cmd_ivrs_acpi_table_info {
+	struct mbox_buffer_header header;
+	struct ivrs_acpi_table_info info;
+} __packed __aligned(32);
 
 /*
  * x86 to PSP mailbox commands that don't take any parameter or return any data, use the
@@ -224,6 +250,9 @@ void psp_print_cmd_status(int cmd_status, struct mbox_buffer_header *header);
 
 /* This command needs to be implemented by the generation specific code. */
 int send_psp_command(uint32_t command, void *buffer);
+
+/* Base of the PSP's MMIO region; implemented by the generation specific code. */
+uintptr_t get_psp_mmio_base(void);
 
 enum cb_err psp_get_ftpm_capabilties(uint32_t *capabilities);
 enum cb_err psp_get_psp_capabilities(uint32_t *capabilities);

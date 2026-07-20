@@ -29,7 +29,7 @@ static uint64_t get_psp_mmio_mask(void)
 
 /* Getting the PSP MMIO base from the domain resources only works in ramstage, but not in SMM,
    so we have to read this from the hardware registers */
-static uintptr_t get_psp_mmio_base(void)
+uintptr_t get_psp_mmio_base(void)
 {
 	static uintptr_t psp_mmio_base;
 	const struct domain_iohc_info *iohc;
