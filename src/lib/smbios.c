@@ -1312,7 +1312,7 @@ unsigned long smbios_write_tables(unsigned long current)
 		memcpy(se->anchor, "_SM_", 4);
 		se->length = sizeof(*se);
 		se->major_version = 3;
-		se->minor_version = 0;
+		se->minor_version = 1;
 		se->max_struct_size = max_struct_size;
 		se->struct_count = handle;
 		memcpy(se->intermediate_anchor_string, "_DMI_", 5);
