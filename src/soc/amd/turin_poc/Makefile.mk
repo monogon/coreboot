@@ -15,6 +15,7 @@ bootblock-y	+= aoac.c
 
 ramstage-y	+= acpi.c
 ramstage-y	+= aoac.c
+ramstage-y	+= pci_irq_routing.c
 ramstage-y	+= chip.c
 ramstage-y	+= cpu.c
 ramstage-y	+= domain.c
