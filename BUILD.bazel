@@ -1,0 +1,9 @@
+# BUILD file for the @coreboot repository
+filegroup(
+    name = "all",
+    srcs = glob(
+        ["**"],
+        exclude = ["**/.git/**"],
+    ),
+    visibility = ["//visibility:public"],
+)

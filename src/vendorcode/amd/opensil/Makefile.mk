@@ -96,8 +96,15 @@ $(OBJPATH)/opensil:  $(OBJPATH)/meson_crosscompile $(obj)/config.h
 $(OBJPATH)/opensil/lib$(opensil_target_name).a: $(OBJPATH)/opensil
 	meson compile -C $(OBJPATH)/opensil $(opensil_target_name)
 
+ifneq ($(OPENSIL_PREBUILT_A),)
+# Monogon hermetic build: opensil.a is built by a separate Bazel action and
+# injected here, so coreboot's make never invokes meson/ninja.
+$(OBJPATH)/opensil.a: $(OPENSIL_PREBUILT_A)
+	cp $< $@
+else
 $(OBJPATH)/opensil.a: $(OBJPATH)/opensil/lib$(opensil_target_name).a
 	cp $(OBJPATH)/opensil/lib$(opensil_target_name).a $@
+endif
 
 romstage-libs += $(OBJPATH)/opensil.a
 ramstage-libs += $(OBJPATH)/opensil.a

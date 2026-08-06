@@ -1,0 +1,17 @@
+## SPDX-License-Identifier: GPL-2.0-only
+
+if VENDOR_MONOGON
+
+choice
+	prompt "Mainboard model"
+
+source "src/mainboard/monogon/*/Kconfig.name"
+
+endchoice
+
+source "src/mainboard/monogon/*/Kconfig"
+
+config MAINBOARD_VENDOR
+	default "Monogon"
+
+endif # VENDOR_MONOGON
