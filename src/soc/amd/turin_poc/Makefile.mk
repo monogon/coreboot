@@ -33,7 +33,7 @@ CPPFLAGS_common += -I$(src)/soc/amd/turin_poc/acpi
 CPPFLAGS_common += -I$(src)/soc/amd/turin_poc/include
 
 ifeq ($(call int-gt, $(CONFIG_ROM_SIZE) 0x1000000), 1)
-CBFSTOOL_ADD_CMD_OPTIONS+= --mmap 0:0xff000000:0x1000000
+CBFSTOOL_ADD_CMD_OPTIONS+= --mmap 0x1000000:0xff000000:0x1000000
 endif
 
 ifneq ($(call strip_quotes, $(CONFIG_AMDFW_CONFIG_FILE)),)

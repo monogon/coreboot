@@ -155,6 +155,8 @@ static void bios_mmap_init(void)
 		assert(DIV_ROUND_UP(rom3_end, GiB) < CONFIG_CPU_PT_ROM_MAP_GB);
 	}
 
+	bool rom3_skipped = false;
+
 	if (CONFIG_ROM_SIZE > 16 * MiB &&
 	    rom3_start > 0 &&
 	    rom3_size > 16 * MiB &&
@@ -168,30 +170,39 @@ static void bios_mmap_init(void)
 		 * This is the default configuration currently enforced by soft-straps.
 		 * When ROM Armor is enabled, don't call FCH SPI functions because the
 		 * SPIBAR is no longer accessible.
+		 *
+		 * If the ROM3 remapping is non-default (e.g. the ABL leaves the SPI
+		 * controller mapping ROM3 to the last 16MiB bank), skip the ROM3 window
+		 * instead of dying. The CBFS lives in the first 16MiB and is fully
+		 * covered by the ROM2 window, so this still allows the bootblock to load
+		 * romstage and the later stages to boot from the CBFS.
 		 */
-		if (!rom3_linear && (ext_win_size > 16 * MiB))
-			die("Non default ROM3 remapping is not supported!");
+		if (!rom3_linear && (ext_win_size > 16 * MiB)) {
+			printk(BIOS_WARNING,
+			       "Non default ROM3 remapping not supported; skipping ROM3 window\n");
+			rom3_skipped = true;
+		} else {
+			/*
+			 * If the extended window is only 16 MiB (32MiB flash) we can map one
+			 * 16MiB in ROM3 even if not linear. However, if more windows are needed
+			 * to be mapped, they must be linear.
+			 */
+			if (rom3_linear)
+				initialize_window(win_count, ROM3_DECODE_WINDOW,
+						  rom3_start + rom2_size, rom2_size, ext_win_size);
+			else if (!rom_armor && !fch_spi_rom3_maps_to_bank3())
+				initialize_window(win_count, ROM3_DECODE_WINDOW,
+						  (uintptr_t)fch_spi_get_rom3_page(rom3_start + rom2_size),
+						  rom2_size, ext_win_size);
+			else
+				die("Can not map flash in ROM3 window!");
 
-		/*
-		 * If the extended window is only 16 MiB (32MiB flash) we can map one
-		 * 16MiB in ROM3 even if not linear. However, if more windows are needed
-		 * to be mapped, they must be linear.
-		 */
-		if (rom3_linear)
-			initialize_window(win_count, ROM3_DECODE_WINDOW,
-					  rom3_start + rom2_size, rom2_size, ext_win_size);
-		else if (!rom_armor && !fch_spi_rom3_maps_to_bank3())
-			initialize_window(win_count, ROM3_DECODE_WINDOW,
-					  (uintptr_t)fch_spi_get_rom3_page(rom3_start + rom2_size),
-					  rom2_size, ext_win_size);
-		else
-			die("Can not map flash in ROM3 window!");
-
-		win_count++;
-		map_win_size += ext_win_size;
+			win_count++;
+			map_win_size += ext_win_size;
+		}
 	}
 
-	assert(map_win_size == CONFIG_ROM_SIZE);
+	assert(map_win_size == CONFIG_ROM_SIZE || rom3_skipped);
 	xlate_region_device_ro_init(&real_dev, win_count, real_dev_windows, map_win_size);
 
 	init_done = true;
