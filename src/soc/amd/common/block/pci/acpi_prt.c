@@ -164,14 +164,32 @@ void acpigen_write_pci_GNB_PRT(const struct device *dev)
 	acpigen_pop_len(); /* Method */
 }
 
-/* Counts table rows with a valid bridge_irq; used only for Package() element count. */
-static size_t count_pci_root_prt_entries(const struct pci_routing_info *routing_table,
+/*
+ * Whether a routing-table entry describes a root-port bridge on this domain's
+ * root bus.
+ */
+static bool routing_entry_on_domain(const struct device *domain,
+				    const struct pci_routing_info *entry)
+{
+	unsigned int bus;
+
+	if (!domain->downstream || entry->bridge_irq == UINT8_MAX)
+		return false;
+
+	bus = (entry->pci_addr >> 8) & 0xff;
+	return bus >= domain->downstream->secondary &&
+	       bus <= domain->downstream->max_subordinate;
+}
+
+/* Counts table rows on this domain with a valid bridge_irq; Package() element count. */
+static size_t count_pci_root_prt_entries(const struct device *domain,
+					 const struct pci_routing_info *routing_table,
 					 size_t routing_table_entries)
 {
 	size_t entries = 0;
 
 	for (size_t i = 0; i < routing_table_entries; ++i) {
-		if (routing_table[i].bridge_irq != UINT8_MAX)
+		if (routing_entry_on_domain(domain, &routing_table[i]))
 			entries++;
 	}
 
@@ -192,21 +210,24 @@ static size_t count_pci_root_prt_entries(const struct pci_routing_info *routing_
  *         ...
  *     }
  */
-static void acpigen_write_root_PRT_GSI(const struct pci_routing_info *routing_table,
+static void acpigen_write_root_PRT_GSI(const struct device *domain,
+				       const struct pci_routing_info *routing_table,
 				       size_t routing_table_entries, size_t prt_entries)
 {
-	acpigen_write_package(prt_entries); /* Package - APIC Routing */
+	acpigen_write_package(prt_entries * 4); /* Package - APIC Routing: four INTx pins per slot */
 	for (size_t i = 0; i < routing_table_entries; ++i) {
-		if (routing_table[i].bridge_irq == UINT8_MAX)
+		if (!routing_entry_on_domain(domain, &routing_table[i]))
 			continue;
 
 		/*
 		 * The HOB's bridge_irq/map byte is not an OS-visible APIC GSI here.
-		 * Route the root port's own INTx through its GNB group/swizzle instead.
+		 * Route the root port's own INTx and any downstream INTx swizzled
+		 * onto it through its GNB group/swizzle instead.
 		 */
-		acpigen_write_PRT_GSI_entry(PCI_SLOT(routing_table[i].pci_addr),
-					    0, /* root port interrupt pin A */
-					    GNB_GSI_BASE + pci_calculate_irq(&routing_table[i], 0));
+		for (unsigned int pin = 0; pin < 4; ++pin)
+			acpigen_write_PRT_GSI_entry(PCI_SLOT(routing_table[i].pci_addr),
+						    pin,
+						    soc_get_gsi_base(domain) + pci_calculate_irq(&routing_table[i], pin));
 	}
 	acpigen_pop_len(); /* Package - APIC Routing */
 }
@@ -225,23 +246,26 @@ static void acpigen_write_root_PRT_GSI(const struct pci_routing_info *routing_ta
  *         ...
  *     }
  */
-static void acpigen_write_root_PRT_PIC(const struct pci_routing_info *routing_table,
+static void acpigen_write_root_PRT_PIC(const struct device *domain,
+				       const struct pci_routing_info *routing_table,
 				       size_t routing_table_entries, size_t prt_entries)
 {
 	char link_template[] = "\\_SB.INTX";
 	unsigned int irq;
 
-	acpigen_write_package(prt_entries); /* Package - PIC Routing */
+	acpigen_write_package(prt_entries * 4); /* Package - PIC Routing: four INTx pins per slot */
 	for (size_t i = 0; i < routing_table_entries; ++i) {
-		if (routing_table[i].bridge_irq == UINT8_MAX)
+		if (!routing_entry_on_domain(domain, &routing_table[i]))
 			continue;
 
-		irq = pci_calculate_irq(&routing_table[i], 0);
-		link_template[8] = 'A' + (irq % 8);
-		acpigen_write_PRT_source_entry(PCI_SLOT(routing_table[i].pci_addr),
-					       0, /* root port interrupt pin A */
-					       link_template,
-					       0);
+		for (unsigned int pin = 0; pin < 4; ++pin) {
+			irq = pci_calculate_irq(&routing_table[i], pin);
+			link_template[8] = 'A' + (irq % 8);
+			acpigen_write_PRT_source_entry(PCI_SLOT(routing_table[i].pci_addr),
+						       pin,
+						       link_template,
+						       0);
+		}
 	}
 	acpigen_pop_len(); /* Package - PIC Routing */
 }
@@ -269,17 +293,20 @@ static void acpigen_write_root_PRT_PIC(const struct pci_routing_info *routing_ta
  *         }
  *     }
  */
-void acpigen_write_pci_root_PRT(void)
+void acpigen_write_pci_root_PRT(const struct device *domain)
 {
 	const struct pci_routing_info *routing_table;
 	size_t routing_table_entries = 0;
 	size_t prt_entries;
 
+	if (!domain || !domain->downstream)
+		return;
+
 	routing_table = get_pci_routing_table(&routing_table_entries);
 	if (!routing_table || !routing_table_entries)
 		return;
 
-	prt_entries = count_pci_root_prt_entries(routing_table, routing_table_entries);
+	prt_entries = count_pci_root_prt_entries(domain, routing_table, routing_table_entries);
 	if (!prt_entries)
 		return;
 
@@ -291,14 +318,14 @@ void acpigen_write_pci_root_PRT(void)
 
 	/* Return (Package{...}) */
 	acpigen_emit_byte(RETURN_OP);
-	acpigen_write_root_PRT_GSI(routing_table, routing_table_entries, prt_entries);
+	acpigen_write_root_PRT_GSI(domain, routing_table, routing_table_entries, prt_entries);
 
 	/* Else */
 	acpigen_write_else();
 
 	/* Return (Package{...}) */
 	acpigen_emit_byte(RETURN_OP);
-	acpigen_write_root_PRT_PIC(routing_table, routing_table_entries, prt_entries);
+	acpigen_write_root_PRT_PIC(domain, routing_table, routing_table_entries, prt_entries);
 
 	acpigen_pop_len(); /* End Else */
 

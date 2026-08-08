@@ -223,7 +223,7 @@ void amd_pci_domain_fill_ssdt(const struct device *domain)
 
 	if (CONFIG(SOC_AMD_COMMON_BLOCK_PCI_DOMAIN_ROOT_PRT)) {
 		acpigen_write_scope(acpi_device_path(domain));
-		acpigen_write_pci_root_PRT();
+		acpigen_write_pci_root_PRT(domain);
 		acpigen_pop_len();
 	}
 }
