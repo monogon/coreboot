@@ -114,6 +114,14 @@ static enum mbox_p2c_status find_psp_spi_flash_device_region(const enum boot_dev
 static bool spi_controller_busy(void)
 {
 	bool busy;
+
+	/*
+	 * With ROM Armor 1 the PSP owns the SPI controller and services the requests
+	 * itself; the busy registers belong to the FCH path and must not block here.
+	 */
+	if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1) && rom_armor_enforced)
+		return false;
+
 	const u16 misc_ctrl = spi_read16(SPI_MISC_CNTRL);
 
 	/* When the firmware is using the SPI controller stop here */

@@ -149,6 +149,48 @@ config TPM_SPI_SPEED
 	    4: 100MHz
 	    5: 800KHz
 
+choice
+	prompt "AMD ROM Armor Feature"
+	default SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR_DISABLED
+	help
+	  The AMD ROM Armor feature protects the SPI flash by enforcing
+	  write/erase operations through the PSP in SMM mode. Depending on the
+	  feature version, the allowed SPI transactions differ and interactions
+	  with the SPI controller are limited or prohibited.
+
+config SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR_DISABLED
+	bool "ROM Armor disabled"
+	help
+	  Do not enable the AMD ROM Armor feature.
+
+config SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1
+	bool "Enable ROM Armor 1"
+	select BOOT_DEVICE_NOT_SPI_FLASH
+	select BOOT_DEVICE_MEMORY_MAPPED
+	select BOOT_DEVICE_SUPPORTS_WRITES
+	select SPI_FLASH
+	select SPI_FLASH_SMM
+	select SOC_AMD_COMMON_BLOCK_PSP_SMI
+	depends on HAVE_SMI_HANDLER
+	depends on SOC_AMD_COMMON_BLOCK_PSP
+	depends on SOC_AMD_COMMON_BLOCK_SPI
+	help
+	  Select this option to use the PSP ROM Armor 1 protocol for SPI flash
+	  operations. This routes SPI read/write/erase operations through the SMM
+	  PSP firmware mailbox interface instead of direct FCH SPI controller
+	  access. Once armed, the SPI flash is read-only from the x86 side except
+	  for the regions in the board whitelist, which is passed to the PSP with
+	  MBOX_BIOS_CMD_ARMOR1_ENFORCE_WHITELIST.
+
+	  ROM Armor 1 is the server-platform variant: the writable regions do not
+	  need to be reported in the PSP BIOS directory entries and it can be used
+	  together with PSP SMI support (SOC_AMD_COMMON_BLOCK_PSP_SMI).
+
+	  WARNING: Since the flash access in the SMI handler is a blocking
+	  operation during which all cores stay in SMM, an erase operation may
+	  lock up the system for a long enough time to be noticeable. Reads and
+	  writes with small data sizes are less problematic.
+
 config SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3
 	bool "Enable ROM Armor 3"
 	select BOOT_DEVICE_NOT_SPI_FLASH
@@ -159,7 +201,6 @@ config SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3
 	depends on HAVE_SMI_HANDLER
 	depends on SOC_AMD_COMMON_BLOCK_PSP
 	depends on SOC_AMD_COMMON_BLOCK_SPI
-	depends on !SOC_AMD_COMMON_BLOCK_PSP_SMI
 	help
 	  Select this option to use PSP ROM Armor3 protocol for SPI flash
 	  operations. This routes SPI read/write/erase operations through
@@ -177,6 +218,7 @@ config SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3
 	  writes with small data sizes are less problematic. This is AMD
 	  specific design and should be enabled when you don't want to service
 	  PSP SMI requests (see CONFIG_SOC_AMD_COMMON_BLOCK_PSP_SMI).
+endchoice
 
 config SOC_AMD_PSP_ROM_ARMOR_64K_ERASE
 	bool

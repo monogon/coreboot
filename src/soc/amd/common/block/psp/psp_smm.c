@@ -10,8 +10,10 @@
 #include <soc/iomap.h>
 #include <spi_flash.h>
 #include <string.h>
+#include <fmap_config.h>
 
 #include "psp_def.h"
+#include "psp_rom_armor_apmc.h"
 
 /*
  * When sending PSP mailbox commands to the PSP from the SMI handler after the boot done
@@ -98,28 +100,135 @@ int psp_notify_smm(void)
 	return cmd_status;
 }
 
-int psp_rom_armor_enter_smm_mode(const bool allow_capsule_update, size_t *flash_size)
+int psp_rom_armor_enter_smm_mode(void *param, size_t *flash_size)
 {
+	struct rom_armor_params_init *params = param;
+	struct mbox_buffer_header *header;
 	int cmd_status;
 
 	*flash_size = 0;
 
-	/* Initialize and send ROM Armor Enter SMM Mode command */
-	struct mbox_rom_armor_enforce_buffer enforce_buffer = {
-		.header.size = sizeof(enforce_buffer),
-		.capsule_update = allow_capsule_update,
-	};
+	if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1)) {
+		struct mbox_rom_armor1_buffer buffer = {
+			.header.size = sizeof(buffer),
+			.tseg_addr = params->operation_buf,
+			.chip_select = params->chip_select,
+		};
 
-	printk(BIOS_SPEW, "PSP: Entering ROM Armor SMM-only mode...\n");
+		/* ROM Armor 1 does not report a flash size; use the configured size. */
+		*flash_size = CONFIG_ROM_SIZE;
 
-	cmd_status = send_psp_command(MBOX_BIOS_CMD_ARMOR_ENTER_SMM_MODE, &enforce_buffer);
-	psp_print_cmd_status(cmd_status, &enforce_buffer.header);
+		printk(BIOS_SPEW, "PSP: Entering ROM Armor 1 SMM-only mode...\n");
+		cmd_status = send_psp_command(MBOX_BIOS_CMD_ARMOR1_ENTER_SMM_MODE, &buffer);
+		header = &buffer.header;
+	} else {
+		struct mbox_rom_armor_enforce_buffer buffer = {
+			.header.size = sizeof(buffer),
+			.capsule_update = params->capsule_update,
+		};
 
-	if (cmd_status || enforce_buffer.header.status)
+		printk(BIOS_SPEW, "PSP: Entering ROM Armor SMM-only mode...\n");
+		cmd_status = send_psp_command(MBOX_BIOS_CMD_ARMOR_ENTER_SMM_MODE, &buffer);
+		header = &buffer.header;
+
+		if (!cmd_status && !header->status)
+			*flash_size = buffer.flash_size;
+	}
+
+	psp_print_cmd_status(cmd_status, header);
+
+	if (cmd_status || header->status)
 		return -1;
 
-	*flash_size = enforce_buffer.flash_size;
 	return 0;
+}
+
+int psp_rom_armor_enforce_whitelist(void *param, uint8_t spi_freq)
+{
+	struct rom_armor_params_init *params = param;
+	const struct psp_rom_armor1_whitelist *whitelist = soc_get_psp_rom_armor_whitelist();
+	struct mbox_rom_armor1_buffer buffer = {
+		.header.size = sizeof(buffer),
+		.tseg_addr = params->operation_buf,
+		.chip_select = params->chip_select,
+	};
+	struct psp_rom_armor1_whitelist *dst;
+	int cmd_status;
+
+	if (!whitelist)
+		return 0;
+
+	/* The PSP reads the whitelist from the TSEG buffer registered at enter SMM-only mode. */
+	dst = (void *)(uintptr_t)buffer.tseg_addr;
+	memset(dst, 0, 4 * KiB);
+	memcpy(dst, whitelist, sizeof(*whitelist));
+
+	/* Patch the controller's actual speed into every whitelisted command. */
+	for (size_t i = 0; i < dst->allowed_cmd_count && i < PSP_MAX_WHITE_LIST_CMD_NUM; i++)
+		dst->allowed_cmds[i].freq = spi_freq;
+
+	printk(BIOS_SPEW, "PSP: Enforcing ROM Armor 1 whitelist...\n");
+
+	cmd_status = send_psp_command(MBOX_BIOS_CMD_ARMOR1_ENFORCE_WHITELIST, &buffer);
+	psp_print_cmd_status(cmd_status, &buffer.header);
+
+	if (cmd_status || buffer.header.status)
+		return -1;
+
+	return 0;
+}
+
+/* SPI opcodes used by the FCH controller driver. All of them must be whitelisted so
+ * reads work everywhere and writes/erases work within the allowed regions. */
+#define SPI_CMD_READ_ID			0x9f
+#define SPI_CMD_READ_ARRAY_SLOW		0x03
+#define SPI_CMD_READ_ARRAY_FAST		0x0b
+#define SPI_CMD_READ_STATUS		0x05
+#define SPI_CMD_WRITE_ENABLE		0x06
+#define SPI_CMD_PAGE_PROGRAM		0x02
+#define SPI_CMD_SECTOR_ERASE		0x20
+#define SPI_CMD_SECTOR_ERASE_32K	0x52
+#define SPI_CMD_BLOCK_ERASE		0xD8
+
+/*
+ * Default ROM Armor 1 whitelist: the standard controller command set plus the
+ * regions coreboot must keep writable after arming. The regions are derived from
+ * the build configuration so the whitelist always matches what the build writes.
+ * Boards with different write needs override soc_get_psp_rom_armor_whitelist().
+ */
+__weak const struct psp_rom_armor1_whitelist *soc_get_psp_rom_armor_whitelist(void)
+{
+	static const struct psp_rom_armor1_whitelist whitelist = {
+		.allowed_cmd_count = 9,
+		.allowed_region_count = CONFIG(SMMSTORE) ? 1 : 0,
+		.allowed_cmds = {
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_READ_ID, .min_rx = 3, .max_rx = 3,
+			  .addr_check = NO_ADDR_CHECK },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_READ_STATUS, .min_rx = 1, .max_rx = 3,
+			  .addr_check = NO_ADDR_CHECK },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_READ_ARRAY_SLOW, .min_tx = 4, .max_tx = 4,
+			  .min_rx = 1, .max_rx = 68, .addr_check = NO_ADDR_CHECK },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_READ_ARRAY_FAST, .min_tx = 5, .max_tx = 5,
+			  .min_rx = 1, .max_rx = 67, .addr_check = NO_ADDR_CHECK },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_WRITE_ENABLE, .addr_check = NO_ADDR_CHECK },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_PAGE_PROGRAM, .min_tx = 5, .max_tx = 72,
+			  .addr_check = ADDR_CHECK_32BIT, .impact_size = 256 },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_SECTOR_ERASE, .min_tx = 4, .max_tx = 4,
+			  .addr_check = ADDR_CHECK_32BIT, .impact_size = 4 * KiB },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_SECTOR_ERASE_32K, .min_tx = 4, .max_tx = 4,
+			  .addr_check = ADDR_CHECK_32BIT, .impact_size = 32 * KiB },
+			{ .cs = CHIP_SELECT_1, .opcode = SPI_CMD_BLOCK_ERASE, .min_tx = 4, .max_tx = 4,
+			  .addr_check = ADDR_CHECK_32BIT, .impact_size = 64 * KiB },
+		},
+		.allowed_regions = {
+#if CONFIG(SMMSTORE)
+			{ FMAP_SECTION_SMMSTORE_START,
+			  FMAP_SECTION_SMMSTORE_START + FMAP_SECTION_SMMSTORE_SIZE - 1 },
+#endif
+		},
+	};
+
+	return &whitelist;
 }
 
 int psp_rom_armor_spi_transaction(const struct mbox_rom_armor_flash_command *cmd_buf)

@@ -1,15 +1,105 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <amdblocks/psp.h>
+#include <amdblocks/spi.h>
+#include <boot_device.h>
 #include <console/console.h>
 #include <cpu/x86/smm.h>
+#include <smmstore.h>
+#include <spi_flash.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
 #include "psp_def.h"
 #include "psp_rom_armor_apmc.h"
 
+/* SPI controller state captured before it is handed over to the PSP (ROM Armor 1). */
+static uint8_t spi_cs;
+static uint8_t spi_freq;
+
 static u8 transfer_buffer[4 * KiB] __aligned(32);
+
+static bool initialized;
+
+static void print_psp_spi_cmd_status(uint16_t result)
+{
+	printk(BIOS_ERR, "PSP RomArmor transaction result: 0x%04x ", result);
+
+	switch (result & 0xf) {
+	case SPI_CMD_NOT_PROCESSED:
+		printk(BIOS_ERR, "(command not processed)\n");
+		break;
+	case SPI_CMD_COMPLETED:
+		printk(BIOS_ERR, "(command completed)\n");
+		break;
+	case SPI_CMD_EXECUTION_ERROR:
+		printk(BIOS_ERR, "(command execution error)\n");
+		break;
+	case SPI_CMD_NOT_ALLOWED:
+		printk(BIOS_ERR, "(command not allowed)\n");
+		break;
+	case SPI_CMD_MALFORMED:
+		printk(BIOS_ERR, "(command malformed)\n");
+		break;
+	default:
+		printk(BIOS_ERR, "(unknown)\n");
+		break;
+	}
+}
+
+int psp_rom_armor1_spi_transaction(struct rom_armor_spi_cmd *cmd_buf)
+{
+	struct rom_armor1_comm_buffer *buffer = (void *)&transfer_buffer[0];
+	struct mbox_rom_armor1_buffer spi_cmd_buffer = {
+		.header.size = sizeof(spi_cmd_buffer),
+		.tseg_addr = (uint64_t)(uintptr_t)&transfer_buffer[0],
+		.chip_select = spi_cs,
+	};
+	int cmd_status;
+
+	if (!initialized)
+		return -1;
+
+	if (!cmd_buf) {
+		printk(BIOS_ERR, "PSP RomArmor transaction: Invalid parameters\n");
+		return -1;
+	}
+
+	/* The PSP verifies the buffer address against the one from enter-SMM-only mode. */
+	memcpy(&buffer->spi_cmd, cmd_buf, sizeof(*cmd_buf));
+	buffer->cmd_result = 0;
+	buffer->ready_to_run = 1;
+	buffer->cmd_count = 1;
+	buffer->spi_cmd[0].freq = spi_freq;
+	if (spi_cs != buffer->spi_cmd[0].cs) {
+		printk(BIOS_ERR, "PSP ROM Armor: SPI CS mismatch\n");
+		buffer->spi_cmd[0].cs = spi_cs;
+	}
+
+	asm volatile ("sfence");
+
+	cmd_status = send_psp_command(MBOX_BIOS_CMD_ARMOR1_EXECUTE_SPI_CMD, &spi_cmd_buffer);
+	if (cmd_status || spi_cmd_buffer.header.status) {
+		psp_print_cmd_status(cmd_status, &spi_cmd_buffer.header);
+		return cmd_status ? cmd_status : spi_cmd_buffer.header.status;
+	}
+
+	if ((buffer->cmd_result & 0xf) != SPI_CMD_COMPLETED) {
+		print_psp_spi_cmd_status(buffer->cmd_result);
+		memset(transfer_buffer, 0, sizeof(transfer_buffer));
+		return -1;
+	}
+
+	if (cmd_buf->rx_bytes) {
+		memcpy(&cmd_buf->buffer[cmd_buf->tx_bytes],
+		       &buffer->spi_cmd[0].buffer[cmd_buf->tx_bytes], cmd_buf->rx_bytes);
+		memset(buffer->spi_cmd[0].buffer, 0, PSP_MAX_SPI_DATA_BUFFER_SIZE);
+	}
+
+	memset(transfer_buffer, 0, sizeof(transfer_buffer));
+
+	return 0;
+}
 
 /*
  * Read data from the SPI flash via PSP RomArmor.
@@ -211,7 +301,6 @@ struct region_device rom_armor_smm_rw =
  * Called from APMC SMI handler with parameters passed via CPU registers
  */
 static bool shutdown;
-static bool initialized;
 
 uint32_t rom_armor_exec(uint8_t command, void *param)
 {
@@ -240,13 +329,47 @@ uint32_t rom_armor_exec(uint8_t command, void *param)
 		printk(BIOS_DEBUG, "%s: Init command received (capsule_update=%d)\n",
 		       __func__, params->capsule_update);
 
-		if (psp_rom_armor_enter_smm_mode(params->capsule_update, &flash_size) != 0) {
+		if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1)) {
+			/* Capture the controller state and hand the SPI bus over to the PSP. */
+			memset(transfer_buffer, 0, sizeof(transfer_buffer));
+
+			spi_cs = boot_device_spi_cs();
+			spi_cs = spi_cs < 2 ? spi_cs + 1 : 1; /* ROM Armor CS is 1-based */
+			spi_freq = DECODE_SPI_NORMAL_SPEED(spi_read16(SPI100_SPEED_CONFIG));
+
+			const struct spi_flash *flash = boot_device_spi_flash();
+			if (flash)
+				spi_release_bus(&flash->spi);
+
+			/* Set up the BIOS MMIO window in SMM before LPC registers get locked. */
+			boot_device_ro();
+
+			/* Register the TSEG buffer the PSP uses for command/whitelist exchange. */
+			params->operation_buf = (uint64_t)(uintptr_t)&transfer_buffer[0];
+			params->chip_select = spi_cs;
+		}
+
+		if (psp_rom_armor_enter_smm_mode(params, &flash_size) != 0) {
 			printk(BIOS_ERR, "%s: Failed to enter SMM mode\n", __func__);
 			return ROM_ARMOR_RET_FAILURE;
 		}
-		/* Sanity check HSTI status */
-		if (!psp_get_hsti_state_rom_armor_enforced())
+
+		if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1)) {
+			/*
+			 * HSTI queries fail on Turin inside the same SMI handler after
+			 * enter-SMM-only-mode, so track the enforcement state ourselves.
+			 */
+			rom_armor_enforced = true;
+
+			if (CONFIG(SMMSTORE))
+				smmstore_lookup_region_reinit();
+
+			if (psp_rom_armor_enforce_whitelist(params, spi_freq) != 0)
+				printk(BIOS_ERR, "%s: Failed to enforce SPI whitelist\n", __func__);
+		} else if (!psp_get_hsti_state_rom_armor_enforced()) {
+			/* Sanity check HSTI status */
 			return ROM_ARMOR_RET_FAILURE;
+		}
 
 		printk(BIOS_INFO, "%s: Initialized with flash size 0x%zx\n", __func__, flash_size);
 		if (region_device_sz(&rom_armor_smm_rw) != flash_size) {
@@ -272,8 +395,16 @@ uint32_t rom_armor_exec(uint8_t command, void *param)
 		printk(BIOS_DEBUG, "%s: Read offset=0x%zx size=0x%zx\n",
 		       __func__, params->offset, params->size);
 
-		ret = psp_rom_armor_spi_readat(&rom_armor_smm_rw, params->buf,
-					       params->offset, params->size);
+		/*
+		 * Route through boot_device_rw() so ROM Armor 1 (SPI controller
+		 * hook) and ROM Armor 3 (dedicated rdev) both work.
+		 */
+		const struct region_device *rw = boot_device_rw();
+
+		if (!rw)
+			return ROM_ARMOR_RET_FAILURE;
+
+		ret = rw->ops->readat(rw, params->buf, params->offset, params->size);
 		return (ret == (ssize_t)params->size) ? ROM_ARMOR_RET_SUCCESS :
 							ROM_ARMOR_RET_FAILURE;
 	}
@@ -291,8 +422,12 @@ uint32_t rom_armor_exec(uint8_t command, void *param)
 		printk(BIOS_DEBUG, "%s: Write src=%p offset=0x%zx size=0x%zx\n",
 		       __func__, params->buf, params->offset, params->size);
 
-		ret = psp_rom_armor_spi_writeat(&rom_armor_smm_rw, params->buf,
-						params->offset, params->size);
+		const struct region_device *rw = boot_device_rw();
+
+		if (!rw)
+			return ROM_ARMOR_RET_FAILURE;
+
+		ret = rw->ops->writeat(rw, params->buf, params->offset, params->size);
 		return (ret == (ssize_t)params->size) ? ROM_ARMOR_RET_SUCCESS :
 							ROM_ARMOR_RET_FAILURE;
 	}
@@ -306,8 +441,12 @@ uint32_t rom_armor_exec(uint8_t command, void *param)
 		printk(BIOS_DEBUG, "%s: Erase offset=0x%zx size=0x%zx\n",
 		       __func__, params->offset, params->size);
 
-		ret = psp_rom_armor_spi_eraseat(&rom_armor_smm_rw,
-						params->offset, params->size);
+		const struct region_device *rw = boot_device_rw();
+
+		if (!rw)
+			return ROM_ARMOR_RET_FAILURE;
+
+		ret = rw->ops->eraseat(rw, params->offset, params->size);
 		return (ret == (ssize_t)params->size) ? ROM_ARMOR_RET_SUCCESS :
 							ROM_ARMOR_RET_FAILURE;
 	}

@@ -53,5 +53,7 @@ ramstage-$(CONFIG_SOC_AMD_COMMON_BLOCK_PSP_SPL) += spl_fuse.c
 
 endif # CONFIG_SOC_AMD_COMMON_BLOCK_PSP_GEN2
 
+smm-$(CONFIG_SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1) += psp_rom_armor_smm.c
+ramstage-$(CONFIG_SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1) += psp_rom_armor.c
 smm-$(CONFIG_SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3) += psp_rom_armor_smm.c
 ramstage-$(CONFIG_SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3) += psp_rom_armor.c

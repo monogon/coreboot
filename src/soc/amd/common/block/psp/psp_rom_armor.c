@@ -123,6 +123,16 @@ void psp_rom_armor_init(bool allow_capsule_update)
 static void rom_armor_finalize(void *unused)
 {
 	/*
+	 * ROM Armor 1 is armed here, right before control is handed over, so that
+	 * all coreboot ramstage flash writes (APOB, ...) happen before the
+	 * whitelist applies. The generic ROM Armor APM interface is then shut down
+	 * immediately; only SMMSTORE (via its own SMI) can write the flash from
+	 * here on.
+	 */
+	if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1))
+		psp_rom_armor_init(false);
+
+	/*
 	 * Lock down rom armor APM interface. Only SMMSTORE will be able to access
 	 * the flash through APM interface from here on.
 	 */

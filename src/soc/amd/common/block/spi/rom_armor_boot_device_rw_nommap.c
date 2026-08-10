@@ -11,6 +11,9 @@
 static struct spi_flash sfg;
 static bool sfg_init_done;
 
+/* Set in SMM once ROM Armor 1 enforcement is active (HSTI queries fail in SMM there). */
+bool rom_armor_enforced = false;
+
 __weak int boot_device_spi_cs(void)
 {
 	return 0;	/* Default to chip select 0 */
@@ -71,11 +74,19 @@ static void boot_device_rw_init(void)
 const struct region_device *boot_device_rw(void)
 {
 	if (ENV_SMM) {
-		/* Could return SPI drivers here, but that would increase SMM size.
-		 * ROM Armor is enforced right after SMM has been set up, so it's
-		 * unlikely that something need R/W access to SPI flash before it
-		 * is enforced.
+		/*
+		 * ROM Armor 1 hooks into the SPI controller in SMM, so use the regular
+		 * SPI rdev there. ROM Armor 3 uses the dedicated rdev once enforced.
 		 */
+		if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1)) {
+			boot_device_rw_init();
+
+			if (sfg_init_done != true)
+				return NULL;
+
+			return &spi_rw;
+		}
+
 		if (!psp_get_hsti_state_rom_armor_enforced())
 			return NULL;
 
@@ -106,7 +117,7 @@ const struct region_device *boot_device_rw(void)
 
 const struct spi_flash *boot_device_spi_flash(void)
 {
-	if (!psp_get_hsti_state_rom_armor_enforced())
+	if (!rom_armor_enforced)
 		boot_device_rw_init();
 
 	if (sfg_init_done != true)

@@ -101,6 +101,8 @@ int smmstore_get_info(struct smmstore_params_info *info);
 #endif
 struct region_device;
 int smmstore_lookup_region(struct region_device *rstore);
+/* Drop the cached region device so it is re-resolved with the current access ops. */
+void smmstore_lookup_region_reinit(void);
 /* Returns 0 if normal parsing should continue, 1 otherwise */
 int smmstore_preprocess_cmd(uint8_t *cmd, void *param);
 

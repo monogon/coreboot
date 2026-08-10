@@ -103,6 +103,17 @@ bool psp_get_hsti_state_rom_armor_enforced(void);
 static inline bool psp_get_hsti_state_rom_armor_enforced(void) { return false; }
 #endif
 
+#if CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR_DISABLED)
+#define rom_armor_enforced false
+#else
+/*
+ * With ROM Armor 1 querying HSTI state does not work in SMM after enter-SMM-only
+ * mode, so SMM tracks the enforcement state in this flag. It is only ever set in
+ * SMM; ramstage never arms and therefore keeps using direct SPI access.
+ */
+extern bool rom_armor_enforced;
+#endif
+
 /* Region device accessing the ROM through PSP mailbox */
 extern struct region_device rom_armor_smm_rw;
 

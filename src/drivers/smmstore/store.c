@@ -107,14 +107,15 @@ static int lookup_store(struct region_device *rstore)
 }
 
  /* this function is non reentrant */
+static bool store_lookup_done;
+
 int smmstore_lookup_region(struct region_device *rstore)
 {
-	static int done;
 	static int ret;
 	static struct region_device rdev;
 
-	if (!done) {
-		done = 1;
+	if (!store_lookup_done) {
+		store_lookup_done = true;
 
 		if (lookup_store(&rdev)) {
 			printk(BIOS_WARNING,
@@ -128,6 +129,16 @@ int smmstore_lookup_region(struct region_device *rstore)
 
 	*rstore = rdev;
 	return ret;
+}
+
+/*
+ * Drop the cached region device so it is re-resolved on the next call. AMD
+ * ROM Armor swaps the SPI flash access ops once it is enforced, so the SMM
+ * store must re-resolve its region device to pick up the new ops.
+ */
+void smmstore_lookup_region_reinit(void)
+{
+	store_lookup_done = false;
 }
 static struct region_device mdev_com_buf;
 

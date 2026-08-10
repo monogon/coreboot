@@ -34,6 +34,9 @@
 #define MBOX_BIOS_CMD_SET_BOOTPARTITION		0x26
 #define MBOX_BIOS_CMD_GET_BOOTPARTITION		0x36
 #define MBOX_BIOS_CMD_PSP_CAPS_QUERY		0x27
+#define MBOX_BIOS_CMD_ARMOR1_ENTER_SMM_MODE	0x28
+#define MBOX_BIOS_CMD_ARMOR1_ENFORCE_WHITELIST	0x29
+#define MBOX_BIOS_CMD_ARMOR1_EXECUTE_SPI_CMD	0x2a
 #define MBOX_BIOS_CMD_SET_SPL_FUSE		0x2d
 #define MBOX_BIOS_CMD_LOCK_FCH_REG		0x30
 #define MBOX_BIOS_CMD_SET_RPMC_ADDRESS		0x39
@@ -205,6 +208,88 @@ struct mbox_rom_armor_flash_command_buffer {
 	struct mbox_rom_armor_flash_command cmd;
 } __packed __aligned(32);
 
+#define PSP_MAX_SPI_CMD_SUPPORT		4	/* Max number of SPI commands per transaction */
+#define PSP_MAX_SPI_DATA_BUFFER_SIZE	72	/* Max SPI command data buffer size */
+#define PSP_MAX_WHITE_LIST_CMD_NUM	32	/* Max number of whitelisted commands */
+#define PSP_MAX_WHITE_LIST_REGION_NUM	16	/* Max number of whitelisted regions */
+
+/* MBOX_BIOS_CMD_ARMOR1_ENTER_SMM_MODE */
+struct mbox_rom_armor1_buffer {
+	struct mbox_buffer_header header;
+	uint64_t tseg_addr;		/* TSEG command buffer address */
+	uint32_t chip_select;		/* SPI chip select */
+} __packed __aligned(32);
+
+enum mbox_rom_armor1_chip_select {
+	CHIP_SELECT_ALL	= 0,
+	CHIP_SELECT_1,
+	CHIP_SELECT_2
+};
+
+enum mbox_rom_armor1_addr_check {
+	NO_ADDR_CHECK = 0,
+	ADDR_CHECK_24BIT,
+	ADDR_CHECK_32BIT
+};
+
+enum mbox_rom_armor1_cmd_freq {
+	SPI_CMD_FREQ_66_66MHZ = 0,
+	SPI_CMD_FREQ_33_33MHZ,
+	SPI_CMD_FREQ_22_22MHZ,
+	SPI_CMD_FREQ_16_66MHZ,
+	SPI_CMD_FREQ_100MHZ,
+	SPI_CMD_FREQ_800KHZ
+};
+
+enum mbox_rom_armor1_cmd_status {
+	SPI_CMD_NOT_PROCESSED = 0,
+	SPI_CMD_COMPLETED,
+	SPI_CMD_EXECUTION_ERROR,
+	SPI_CMD_NOT_ALLOWED,
+	SPI_CMD_MALFORMED
+};
+
+/* A single SPI command handed to the PSP (MBOX_BIOS_CMD_ARMOR1_EXECUTE_SPI_CMD). */
+struct rom_armor_spi_cmd {
+	uint8_t cs;		/* See mbox_rom_armor1_chip_select, cannot be 0 */
+	uint8_t freq;		/* See mbox_rom_armor1_cmd_freq */
+	uint8_t tx_bytes;	/* TX byte count, opcode excluded, <= PSP_MAX_SPI_DATA_BUFFER_SIZE */
+	uint8_t rx_bytes;	/* RX byte count, tx_bytes + rx_bytes <= PSP_MAX_SPI_DATA_BUFFER_SIZE */
+	uint8_t opcode;
+	uint8_t reserved[3];
+	uint8_t buffer[PSP_MAX_SPI_DATA_BUFFER_SIZE];
+} __packed;
+
+/* Command buffer in TSEG shared with the PSP during command execution. */
+struct rom_armor1_comm_buffer {
+	uint8_t ready_to_run;
+	uint8_t cmd_count;
+	uint16_t cmd_result;
+	struct rom_armor_spi_cmd spi_cmd[PSP_MAX_SPI_CMD_SUPPORT];
+} __packed;
+
+struct rom_armor1_allowed_cmd {
+	uint8_t cs;		/* See mbox_rom_armor1_chip_select */
+	uint8_t freq;		/* See mbox_rom_armor1_cmd_freq */
+	uint8_t opcode;		/* Allowed command opcode */
+	uint8_t min_tx, max_tx;	/* Allowed TX byte counts, opcode excluded */
+	uint8_t min_rx, max_rx;	/* Allowed RX byte counts */
+	uint8_t addr_check;	/* See mbox_rom_armor1_addr_check */
+	uint32_t impact_size;	/* Aligned power-of-two block the command modifies */
+} __packed;
+
+struct rom_armor1_region {
+	uint32_t start;	/* LSB must be 0x00, bit31 identifies the chipselect: 0=CS1, 1=CS2 */
+	uint32_t end;		/* LSB must be 0xFF, start must be less than end */
+} __packed;
+
+struct psp_rom_armor1_whitelist {
+	uint8_t allowed_cmd_count;
+	uint8_t allowed_region_count;
+	struct rom_armor1_allowed_cmd allowed_cmds[PSP_MAX_WHITE_LIST_CMD_NUM];
+	struct rom_armor1_region allowed_regions[PSP_MAX_WHITE_LIST_REGION_NUM];
+} __packed;
+
 #define PSP_INIT_TIMEOUT 10000 /* 10 seconds */
 #define PSP_CMD_TIMEOUT 1000 /* 1 second */
 
@@ -300,9 +385,18 @@ struct mbox_rom_armor_flash_command;
  */
 int psp_rom_armor_spi_transaction(const struct mbox_rom_armor_flash_command *cmd_buf);
 
+#if CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1)
+int psp_rom_armor1_spi_transaction(struct rom_armor_spi_cmd *cmd_buf);
+#else
+static inline int psp_rom_armor1_spi_transaction(struct rom_armor_spi_cmd *cmd_buf)
+{
+	return -1; /* Unsupported */
+}
+#endif
+
 /**
  * psp_rom_armor_enter_smm_mode - Active PSP Rom Armor
- * @param allow_capsule_update: Indicates if the system is in capsule update mode
+ * @param param: Pointer to rom_armor_params_init with ROM Armor 1 and 3 init parameters
  * @param flash_size: Pointer to store the flash size retrieved from PSP firmware
  *
  * After this function is called, PSP Rom Armor will be active and protect
@@ -312,6 +406,22 @@ int psp_rom_armor_spi_transaction(const struct mbox_rom_armor_flash_command *cmd
  *
  * Returns: 0 on success, negative error code on failure
  */
-int psp_rom_armor_enter_smm_mode(const bool allow_capsule_update, size_t *flash_size);
+int psp_rom_armor_enter_smm_mode(void *param, size_t *flash_size);
+
+/**
+ * psp_rom_armor_enforce_whitelist - Enforce the PSP ROM Armor 1 SPI whitelist
+ * @param param: Pointer to rom_armor_params_init with the TSEG buffer address
+ * @param spi_freq: SPI controller normal operation speed patched into the whitelist
+ *
+ * Copies the whitelist returned by soc_get_psp_rom_armor_whitelist() into the
+ * TSEG command buffer and sends MBOX_BIOS_CMD_ARMOR1_ENFORCE_WHITELIST.
+ * Only used in ROM Armor 1.
+ *
+ * Returns: 0 on success, negative error code on failure
+ */
+int psp_rom_armor_enforce_whitelist(void *param, uint8_t spi_freq);
+
+/* Return the ROM Armor 1 SPI whitelist, or NULL to skip enforcement. */
+const struct psp_rom_armor1_whitelist *soc_get_psp_rom_armor_whitelist(void);
 
 #endif /* __AMD_PSP_DEF_H__ */

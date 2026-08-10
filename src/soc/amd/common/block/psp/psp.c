@@ -164,6 +164,14 @@ bool psp_get_hsti_state_rom_armor_enforced(void)
 {
 	uint32_t hsti_state;
 
+	/*
+	 * ROM Armor 1: HSTI queries fail in SMM once SMM-only mode is entered, so
+	 * rely on the flag set by the SMM INIT handler. Ramstage never sets it
+	 * (ROM Armor is armed right before the payload), which is also correct.
+	 */
+	if (CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR1))
+		return rom_armor_enforced;
+
 	if (!CONFIG(SOC_AMD_COMMON_BLOCK_PSP_ROM_ARMOR3))
 		return false;
 

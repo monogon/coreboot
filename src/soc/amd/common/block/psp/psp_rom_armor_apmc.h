@@ -27,6 +27,8 @@ enum rom_armor_apm_result {
 /* Parameter structures for ROM Armor operations */
 struct rom_armor_params_init {
 	bool capsule_update;	/* 1 for capsule update/recovery mode, 0 otherwise */
+	uint64_t operation_buf;	/* TSEG buffer used for ROM Armor 1 command/whitelist exchange */
+	uint32_t chip_select;	/* SPI chip select, 1-based for ROM Armor 1 */
 };
 
 struct rom_armor_params_read {
