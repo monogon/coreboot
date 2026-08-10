@@ -188,35 +188,38 @@ static int ipmi_kcs_read_message(int port, unsigned char *msg, int len)
 {
 	int status, ret = 0;
 
-	if (wait_ibf_timeout(port))
-		return 1;
-
 	for (;;) {
-		status = ipmi_kcs_status(port);
-
-		if (IPMI_KCS_STATE(status) == IPMI_KCS_STATE_IDLE)
-			return ret;
-
-		if (IPMI_KCS_STATE(status) != IPMI_KCS_STATE_READ) {
-			printk(BIOS_ERR, "%s: wrong state: 0x%02x\n", __func__,
-			       status);
-			return -1;
-		}
-
-		if (wait_obf_timeout(port))
-			return -1;
-
-		if (msg && (ret < len)) {
-			*msg++ = inb(IPMI_DATA(port));
-			ret++;
-		}
-
 		if (wait_ibf_timeout(port))
 			return -1;
 
-		outb(IPMI_KCS_READ_BYTE, IPMI_DATA(port));
+		status = ipmi_kcs_status(port);
+
+		if (IPMI_KCS_STATE(status) == IPMI_KCS_STATE_READ) {
+			if (wait_obf_timeout(port))
+				return -1;
+
+			unsigned char byte = inb(IPMI_DATA(port));
+
+			if (msg && (ret < len)) {
+				*msg++ = byte;
+				ret++;
+			}
+
+			outb(IPMI_KCS_READ_BYTE, IPMI_DATA(port));
+			continue;
+		}
+
+		if (IPMI_KCS_STATE(status) == IPMI_KCS_STATE_IDLE) {
+			if (wait_obf_timeout(port))
+				return -1;
+			(void)inb(IPMI_DATA(port));
+			return ret;
+		}
+
+		printk(BIOS_ERR, "%s: wrong state: 0x%02x\n", __func__,
+		       status);
+		return -1;
 	}
-	return ret;
 }
 
 int ipmi_message(int port, int netfn, int lun, int cmd,
