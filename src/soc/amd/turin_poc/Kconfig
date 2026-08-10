@@ -320,6 +320,52 @@ config SERIRQ_CONTINUOUS_MODE
 	  Set this option to y for serial IRQ in continuous mode.
 	  Otherwise it is in quiet mode.
 
+config DIMM_TELEMETRY_I2C_0_1_DEFAULT
+	bool
+
+config DIMM_TELEMETRY_I2C_0_3_DEFAULT
+	bool
+
+config DIMM_TELEMETRY_I3C_0_1_DEFAULT
+	bool
+
+config DIMM_TELEMETRY_I3C_0_3_DEFAULT
+	bool
+
+choice
+	prompt "DIMM telemetry"
+	default DIMM_TELEMETRY_I2C_0_1 if DIMM_TELEMETRY_I2C_0_1_DEFAULT
+	default DIMM_TELEMETRY_I2C_0_3 if DIMM_TELEMETRY_I2C_0_3_DEFAULT
+	default DIMM_TELEMETRY_I3C_0_1 if DIMM_TELEMETRY_I3C_0_1_DEFAULT
+	default DIMM_TELEMETRY_I3C_0_3 if DIMM_TELEMETRY_I3C_0_3_DEFAULT
+	default DIMM_TELEMETRY_DISABLED
+	help
+	  If DIMM telemetry is enabled, the SMU will poll temperature and
+	  current readings from DIMMs. Sensor readings and SPD data is
+	  available via APML. The SMU uses the I2C/I3C controllers where
+	  DIMMs are attached, so they should not be accessed by the OS, but
+	  must remain powered in AOAC. The selected controllers are removed
+	  from the DSDT so that the OS doesn't see an unused PowerResource
+	  and powers it off. When enabling this, you should additionally set
+	  the controllers in the devicetree as hidden.
+
+config DIMM_TELEMETRY_DISABLED
+	bool "Disable"
+
+config DIMM_TELEMETRY_I2C_0_1
+	bool "Enable on I2C 0-1"
+
+config DIMM_TELEMETRY_I2C_0_3
+	bool "Enable on I2C 0-3"
+
+config DIMM_TELEMETRY_I3C_0_1
+	bool "Enable on I3C 0-1"
+
+config DIMM_TELEMETRY_I3C_0_3
+	bool "Enable on I3C 0-3"
+
+endchoice
+
 config AMD_SME_ENABLE
 	bool "Enable AMD Secure Memory Encryption (SME)"
 	default n

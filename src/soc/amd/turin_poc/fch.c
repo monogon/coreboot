@@ -5,10 +5,16 @@
 #include <amdblocks/amd_pci_util.h>
 #include <amdblocks/gpio.h>
 #include <amdblocks/smi.h>
+#include <amdblocks/smu.h>
+#include <bootstate.h>
 #include <cpu/x86/smm.h>
+#include <soc/amd/common/block/psp/psp_def.h>
 #include <soc/amd_pci_int_defs.h>
 #include <soc/smi.h>
+#include <soc/smu.h>
 #include <soc/southbridge.h>
+
+#define CMD_CONFIG_ID_FENCE_I2C_I3C		0x07
 
 /*
  * Table of APIC register index and associated IRQ name. Using IDX_XXX_NAME
@@ -138,3 +144,37 @@ void fch_init(void *chip_info)
 
 	fch_enable_ioapic_decode();
 }
+
+#if !CONFIG(DIMM_TELEMETRY_DISABLED)
+static void enable_dimm_telemetry(void *unused)
+{
+#if CONFIG(DIMM_TELEMETRY_I2C_0_1)
+	uint32_t fence_args[4] = { APU_I2C0_BASE, APU_I2C1_BASE + 0xfff };
+	uint32_t bus_type = 0;
+#elif CONFIG(DIMM_TELEMETRY_I2C_0_3)
+	uint32_t fence_args[4] = { APU_I2C0_BASE, APU_I2C3_BASE + 0xfff };
+	uint32_t bus_type = 0;
+#elif CONFIG(DIMM_TELEMETRY_I3C_0_1)
+	uint32_t fence_args[4] = { APU_I3C0_BASE, APU_I3C1_BASE + 0xfff };
+	uint32_t bus_type = 1;
+#elif CONFIG(DIMM_TELEMETRY_I3C_0_3)
+	uint32_t fence_args[4] = { APU_I3C0_BASE, APU_I3C3_BASE + 0xfff };
+	uint32_t bus_type = 1;
+#else
+#error "Unknown DIMM telemetry option"
+#endif
+	struct smu_payload msg = { 0 };
+
+	/*
+	 * Fencing disables access to the I2C/I3C controllers from x86, to
+	 * prevent conflicts with the SMU accessing them for telemetry.
+	 */
+	psp_command_set_config(CMD_CONFIG_ID_FENCE_I2C_I3C, fence_args,
+			       "fence I2C/I3C controller for DIMM telemetry");
+
+	msg.msg[0] = bus_type;
+	if (send_smu_message(SMC_MSG_ENABLE_DIMM_TELEMETRY, &msg) != CB_SUCCESS)
+		printk(BIOS_ERR, "Failed to enable DIMM telemetry\n");
+}
+BOOT_STATE_INIT_ENTRY(BS_POST_DEVICE, BS_ON_EXIT, enable_dimm_telemetry, NULL);
+#endif

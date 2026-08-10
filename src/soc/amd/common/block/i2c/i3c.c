@@ -57,6 +57,13 @@ static const char *i3c_acpi_name(const struct device *dev)
 
 static void i3c_acpi_fill_ssdt(const struct device *dev)
 {
+	/*
+	 * Hidden devices (e.g. DIMM telemetry) must not emit a scope: the OS
+	 * would see an unused PowerResource and power the controller off.
+	 */
+	if (dev->hidden)
+		return;
+
 	acpigen_write_scope(acpi_device_path(dev));
 	acpigen_write_store_int_to_namestr(acpi_device_status(dev), "STAT");
 	acpigen_pop_len(); /* Scope */

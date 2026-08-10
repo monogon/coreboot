@@ -12,6 +12,8 @@
 
 enum smu_message_id {
 	SMC_MSG_S3ENTRY = 0x0b,
+	SMC_MSG_ENABLE_DIMM_TELEMETRY = 0x47,
+	SMC_MSG_DISABLE_DIMM_TELEMETRY = 0x48,
 };
 
 /*

@@ -214,6 +214,8 @@ Device (FUR3) {
 	AOAC_DEVICE(FCH_AOAC_DEV_UART3, 0)
 }
 
+#if !CONFIG(DIMM_TELEMETRY_I2C_0_3)
+#if !CONFIG(DIMM_TELEMETRY_I2C_0_1)
 Device (I2C0) {
 	Name (_HID, "AMDI0010")
 	Name (_UID, 0x0)
@@ -287,6 +289,7 @@ Device (I2C1) {
 
 	AOAC_DEVICE(FCH_AOAC_DEV_I2C1, 0)
 }
+#endif /* !CONFIG(DIMM_TELEMETRY_I2C_0_1) */
 
 Device (I2C2) {
 	Name (_HID, "AMDI0010")
@@ -362,6 +365,7 @@ Device (I2C3)
 
 	AOAC_DEVICE(FCH_AOAC_DEV_I2C3, 0)
 }
+#endif /* !CONFIG(DIMM_TELEMETRY_I2C_0_3) */
 
 Device (I2C4)
 {
@@ -460,6 +464,8 @@ Device (MISC)
 	}
 }
 
+#if !CONFIG(DIMM_TELEMETRY_I3C_0_3)
+#if !CONFIG(DIMM_TELEMETRY_I3C_0_1)
 Device (I3C0)
 {
 	Name (STAT, 0x0)
@@ -551,6 +557,7 @@ Device (I3C1)
 
 	AOAC_DEVICE(FCH_AOAC_DEV_I3C1, 0)
 }
+#endif /* !CONFIG(DIMM_TELEMETRY_I3C_0_1) */
 
 Device (I3C2)
 {
@@ -643,3 +650,4 @@ Device (I3C3)
 
 	AOAC_DEVICE(FCH_AOAC_DEV_I3C3, 0)
 }
+#endif /* !CONFIG(DIMM_TELEMETRY_I3C_0_3) */
